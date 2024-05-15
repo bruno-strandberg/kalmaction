@@ -10,8 +10,8 @@ int main(int argc, char* argv[]) {
   po::options_description desc("Allowed options");
   desc.add_options()
     ("help", "produce help message")
-    ("x", po::value<int>(), "x in epsg 3301")
-    ("y", po::value<int>(), "y in epsg 3301")
+    ("x", po::value<int>(), "x coordinate")
+    ("y", po::value<int>(), "y coordinate")
     ;
 
   // Parse command line arguments
@@ -25,26 +25,31 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  int x = 1000;
+  int y = 1000;
+  
   // Check if option x is specified
   if (vm.count("x")) {
-    std::cout << "Option x is set to " << vm["x"].as<int>() << ".\n";
+    x = vm["x"].as<int>();
+    std::cout << "Option x is set to " << x << std::endl;
   } else {
-    std::cout << "Option x was not set.\n";
+    std::cout << "Option x was not set, using default " << x << std::endl;
   }
 
   if (vm.count("y")) {
-    std::cout << "Option x is set to " << vm["y"].as<int>() << ".\n";
+    y = vm["y"].as<int>();
+    std::cout << "Option y is set to " << y << std::endl;
   } else {
-    std::cout << "Option y was not set.\n";
+    std::cout << "Option y was not set, using default " << y << std::endl;
   }
 
 
-
-  
   // Your code here
   Drone drone1;
-  drone1.setDest(1000, 0);
-  return 0;
+  drone1.setDest(x, y);
+  //drone1.setDest(-1000, 1000);
+  //drone1.setDest(1000, -1000);
+  //drone1.setDest(-1000, -1000);
   drone1.flyToDest(1);
   return 0;
 }

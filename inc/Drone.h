@@ -12,6 +12,7 @@ public:
   void flyToDest(double destTolerance);
   void setAccStd(double acc_std);
   void setPosStd(double pos_std);
+  const cv::Mat& getMap() const { return m_map; }
   
   
  private:
@@ -28,6 +29,7 @@ public:
   double m_expected_pos_std;               // std of pos reading from GPS as expected by the Kalman process
   double m_current_time;
   double m_max_flight_time;
+  double m_total_distance;
   Eigen::MatrixXd m_true_next_state;       // matrix for storing the true state for exploring true vs model
   Eigen::Vector2d m_true_a;                // vector for storing true acceleration values based on which IMU can simulate a reading
   Eigen::Vector2d m_dest;                  // destination XY

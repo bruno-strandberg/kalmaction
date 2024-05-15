@@ -3,18 +3,22 @@
 #include <cmath>
 #include <stdexcept>
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #define DEBUG_MSG(str) do { std::cout << "DEBUG: " << str << std::endl; } while( false )
 #else
     #define DEBUG_MSG(str) do { } while ( false )
 #endif
 
+#include <cassert>
+#define assertm(exp, msg) assert(((void)msg, exp))
+
 Drone::Drone() :
   m_expected_acc_std(0.1),
   m_expected_pos_std(3.0),
   m_current_time(0),
   m_max_flight_time(0),
+  m_total_distance(0),
   m_true_next_state(4, 1),
   m_true_a(0.0, 0.0),
   m_dest(0.0, 0.0),
@@ -57,7 +61,7 @@ Drone::Drone() :
   m_pos_gaus = std::normal_distribution<double>(0.0, m_expected_pos_std);
   
   // image to draw positions
-  m_map = cv::Mat(500, 500, CV_8UC3, cv::Scalar(0, 0, 0));
+  m_map = cv::Mat(1000, 1000, CV_8UC3, cv::Scalar(255, 255, 255));
 }
 
 // -----------------------------------------------------------------------------
@@ -123,6 +127,8 @@ void Drone::setPosStd(double pos_std) {
    @param Y_dest    Y coordinate
  */
 void Drone::setDest(double X_dest, double Y_dest) {
+  assertm(X_dest >= 0, "X destination should be positive (to simplify drawing)");
+  assertm(Y_dest >= 0, "Y destination should be positive (to simplify drawing)");
   m_dest << X_dest, Y_dest;
   Eigen::Vector2d pos_est(m_model_state(0, 0), m_model_state(1, 0));
   auto vec_to_dest = m_dest - pos_est;
@@ -150,7 +156,7 @@ void Drone::UpdateAcceleration() {
     
     // if close to cruise speed and the direction is OK, set acceleration to 0
     if ((abs(speed_est.norm() - m_cruise_speed) < m_speed_tolerance) &&
-        (abs(cur_dir_delta) > m_dir_tolerance)) {
+        (cur_dir_delta > m_dir_tolerance)) {
       DEBUG_MSG("Speed is: " << speed_est.norm() << " dir_delta is: " << cur_dir_delta << " setting acc to 0" );
       m_true_a << 0.0, 0.0;
     }
@@ -182,7 +188,12 @@ void Drone::UpdateAcceleration() {
 void Drone::PredictNextState() {
   Eigen::Vector2d acc_imu(m_true_a(0) + m_acc_gaus(m_generator), m_true_a(1) + m_acc_gaus(m_generator));
   DEBUG_MSG("True a: \n" << m_true_a << "\nSim a: \n" << acc_imu);
+  
+  Eigen::Vector2d current_true_pos(m_true_next_state(0), m_true_next_state(1));
   m_true_next_state = m_A * m_true_next_state + m_B * m_true_a;
+  Eigen::Vector2d next_true_pos(m_true_next_state(0), m_true_next_state(1));
+  m_total_distance += (current_true_pos - next_true_pos).norm();
+    
   m_model_next_state = m_A * m_model_state + m_B * acc_imu;
   m_model_next_state_cov = m_A * m_model_state_cov * m_A.transpose() + m_Q;
 
@@ -227,6 +238,7 @@ void Drone::flyToDest(double destTolerance) {
     if (distance < destTolerance) {
       std::cout << "NOTICE Drone::flyToDest The drone postion (" << pos_est(0) << ", " << pos_est(1) << ") is within "
                 << destTolerance << " meters of the destination (" << m_dest(0) << ", " << m_dest(1) << "), exiting" << std::endl;
+      std::cout << "NOTICE Drone::flyToDest total time (s) and distance (m): " << m_current_time << " " << m_total_distance << std::endl;
       return;
     }
     
@@ -246,4 +258,15 @@ void Drone::flyToDest(double destTolerance) {
 
 // -----------------------------------------------------------------------------
 
-void Drone::UpdateMap() {}
+void Drone::UpdateMap() {
+
+  //double offset_x = m_map.size().width/2.0, offset_y = m_map.size().height/2.0;
+  double offset_x = 0, offset_y = 0;
+  double m_per_pxl = 2.0;
+  auto true_x = m_true_next_state(0)/m_per_pxl + offset_x, true_y = m_true_next_state(1)/m_per_pxl + offset_y;
+  auto est_x = m_model_state(0)/m_per_pxl + offset_x, est_y = m_model_state(1)/m_per_pxl + offset_y;
+
+  cv::drawMarker(m_map, cv::Point(true_x, true_y), cv::Scalar(0, 255, 0), cv::MARKER_CROSS, 1, 1);
+  cv::drawMarker(m_map, cv::Point(est_x, est_y), cv::Scalar(0, 0, 255), cv::MARKER_STAR, 1, 1);
+  
+}

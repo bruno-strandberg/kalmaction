@@ -9,7 +9,9 @@ namespace po = boost::program_options;
 struct ParConf {
   double acc_std;
   double pos_std;
-  ParConf(double _acc_std, double _pos_std) : acc_std(_acc_std), pos_std(_pos_std) {};
+  std::string run_str;
+  ParConf(double _acc_std, double _pos_std, std::string _run_str) :
+    acc_std(_acc_std), pos_std(_pos_std), run_str(_run_str) {};
 };
 
 void runSim(ParConf conf, std::filesystem::path plots_path) {
@@ -19,7 +21,7 @@ void runSim(ParConf conf, std::filesystem::path plots_path) {
   drone1.setPosStd(conf.pos_std);
   drone1.flyToDest(3);
   auto map = drone1.getMap();
-  std::string pic_name = std::to_string(conf.acc_std) + "_" + std::to_string(conf.pos_std) + ".png";
+  std::string pic_name = conf.run_str + "_" + std::to_string(conf.acc_std) + "_" + std::to_string(conf.pos_std) + ".png";
   std::filesystem::path pic_path = plots_path / pic_name;
   try {
     cv::imwrite(pic_path.string(), map);
@@ -38,6 +40,8 @@ int main(int argc, char* argv[]) {
     ("help", "produce help message")
     ("x", po::value<int>(), "x coordinate")
     ("y", po::value<int>(), "y coordinate")
+    ("acc_std", po::value<double>(), "accelerometer std in m/s2")
+    ("pos_std", po::value<double>(), "GPS std in m")
     ("run_experiments,r", po::bool_switch(&run_exps)->default_value(false), "Run experiments");
   ;
     
@@ -54,10 +58,11 @@ int main(int argc, char* argv[]) {
 
   int x = 1000;
   int y = 1000;
+  double acc_std = 0.5;
+  double pos_std = 3;  
   
   if (vm.count("x")) {
     x = vm["x"].as<int>();
-    std::cout << "Option x is set to " << x << std::endl;
   } else {
     std::cout << "Option x was not set, using default " << x << std::endl;
   }
@@ -68,23 +73,37 @@ int main(int argc, char* argv[]) {
   } else {
     std::cout << "Option y was not set, using default " << y << std::endl;
   }
-  
+
+  if (vm.count("acc_std")) {
+    acc_std = vm["acc_std"].as<double>();
+    std::cout << "Option acc_std is set to " << acc_std << std::endl;
+  } else {
+    std::cout << "Option acc_std was not set, using default " << acc_std << std::endl;
+  }
+
+  if (vm.count("pos_std")) {
+    pos_std = vm["pos_std"].as<double>();
+    std::cout << "Option pos_std is set to " << pos_std << std::endl;
+  } else {
+    std::cout << "Option pos_std was not set, using default " << pos_std << std::endl;
+  }
+
   std::vector<ParConf> par_confs;
 
   // configurations for scanning the effect of IMU std
   for (double _acc_std = 0.1; _acc_std <= 3; _acc_std += 0.1) {
-    par_confs.push_back( ParConf(_acc_std, 3) );
+    par_confs.push_back( ParConf(_acc_std, 3, "accstd_scan") );
   }
 
   // configurations for scanning the effect of POS std
   for (double _pos_std = 0.5; _pos_std <= 30; _pos_std += 1) {
-    par_confs.push_back( ParConf(0.5, _pos_std) );
+    par_confs.push_back( ParConf(0.5, _pos_std, "posstd_scan") );
   }
 
   // configurations for increasing both to a breaking point
   double _acc_std = 0.1, _pos_std = 0.5;
   for (int i = 0; i < 10; i++) {
-    par_confs.push_back( ParConf(_acc_std, _pos_std) );
+    par_confs.push_back( ParConf(_acc_std, _pos_std, "comb_scan") );
     _acc_std += 0.5;
     _pos_std += 1.0;
   }
@@ -108,7 +127,8 @@ int main(int argc, char* argv[]) {
   // Your code here
   Drone drone1;
   drone1.setDest(x, y);
-  drone1.setAccStd(0.1);
+  drone1.setAccStd(acc_std);
+  drone1.setPosStd(pos_std);
   drone1.flyToDest(3);
   auto mat = drone1.getMap();
   cv::namedWindow("drone1");

@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
 #include <random>
+#include "KalmanState.h"
 
 class Drone {
 
@@ -30,21 +31,12 @@ public:
   double m_current_time;
   double m_max_flight_time;
   double m_total_distance;
-  Eigen::MatrixXd m_true_next_state;       // matrix for storing the true state for exploring true vs model
-  Eigen::Vector2d m_true_a;                // vector for storing true acceleration values based on which IMU can simulate a reading
+  Eigen::Matrix<double, 2, 1> m_true_a;    // vector for storing true acceleration values based on which IMU can simulate a reading
   Eigen::Vector2d m_dest;                  // destination XY
 
-  Eigen::MatrixXd m_model_state;           // matrix for storing the current model state with [x, y, vx, vy]
-  Eigen::MatrixXd m_model_state_cov;       // covariance matrix with model uncertainties
-  Eigen::MatrixXd m_model_next_state;      // matrix for storing the predicted next model state with [x, y, vx, vy]
-  Eigen::MatrixXd m_model_next_state_cov;  // covariance matrix with model uncertainties
-
-  Eigen::Matrix4d m_A;                     // State transition matrix
-  Eigen::Matrix<double, 4, 2> m_B;         // Control input matrix
-  Eigen::Matrix4d m_Q;                     // control input covariance
-  Eigen::Matrix<double, 2, 4> m_H;         // state-to-measurement transition
-  Eigen::Matrix2d m_R;                     // position measurement covariance
-
+  KalmanState m_ModelState;
+  KalmanState m_TrueState;
+  
   std::normal_distribution<double> m_acc_gaus;  // gaussian to simulate random noise in IMU
   std::normal_distribution<double> m_pos_gaus;  // gaussian to simulate random noise in GPS
   std::default_random_engine m_generator;       // random number generator
@@ -54,10 +46,7 @@ public:
   void UpdateAcceleration();
   void PredictNextState();
   void EstimateThisState();
-  void UpdateMap();
-  void setQvals(double acc_std);
-  void setRvals(double pos_std);
-  
+  void UpdateMap();  
   
   
 };

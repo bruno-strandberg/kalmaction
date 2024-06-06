@@ -3,7 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 #define DEBUG_MSG(str) do { std::cout << "DEBUG: " << str << std::endl; } while( false )
 #else
@@ -19,76 +19,21 @@ Drone::Drone() :
   m_current_time(0),
   m_max_flight_time(0),
   m_total_distance(0),
-  m_true_next_state(4, 1),
-  m_true_a(0.0, 0.0),
   m_dest(0.0, 0.0),
-  m_model_state(4, 1),
-  m_model_state_cov(4, 4),
-  m_model_next_state(4, 1),
-  m_model_next_state_cov(4, 4),
+  m_ModelState(m_dt, m_expected_acc_std, m_expected_pos_std),
+  m_TrueState(m_dt, 0.0, 0.0),
   m_generator(21453) {
 
-  // set state's to 0s
-  m_model_state << 0.0, 0.0, 0.0, 0.0;
-  m_model_state_cov.setZero();
-  m_model_next_state << 0.0, 0.0, 0.0, 0.0;
-  m_model_next_state_cov.setZero();
-  m_true_next_state << 0.0, 0.0, 0.0, 0.0;
-
-  // init the transition matrices predict the next state
-  m_A = Eigen::Matrix4d::Identity();
-  m_A(0, 2) = m_dt;
-  m_A(1, 3) = m_dt;
-
-  m_B.setZero();
-  m_B(0, 0) = 0.5*m_dt*m_dt;   m_B(0, 1) =           0.0;
-  m_B(1, 0) =           0.0;   m_B(1, 1) = 0.5*m_dt*m_dt;
-  m_B(2, 0) =          m_dt;   m_B(2, 1) =           0.0;
-  m_B(3, 0) =             0;   m_B(3, 1) =          m_dt;
-
-
-  // covariance matrices related to measurement from IMU, GPS
-  setQvals(m_expected_acc_std);
-  setRvals(m_expected_pos_std);
+  m_true_a.setZero();
   
-  // state-to-measurement matrix
-  m_H.setZero();
-  m_H(0, 0) = 1.0;
-  m_H(1, 1) = 1.0;
-
   // distributions for simulating noise
   m_acc_gaus = std::normal_distribution<double>(0.0, m_expected_acc_std);
   m_pos_gaus = std::normal_distribution<double>(0.0, m_expected_pos_std);
   
   // image to draw positions
   m_map = cv::Mat(1000, 1000, CV_8UC3, cv::Scalar(255, 255, 255));
-}
 
-// -----------------------------------------------------------------------------
-
-/** 
-    @brief Function to set control input covariance matrix parameters depending on the expected accelerometer std
-*/
-void Drone::setQvals(double acc_std) {
-  m_Q.setZero();
-  double _t1 = pow(m_dt, 4)*acc_std*acc_std/4.0;
-  double _t2 = pow(m_dt, 3) * acc_std*acc_std/2.0;
-  double _t3 = m_dt*m_dt * acc_std*acc_std;
-  m_Q(0, 0) = _t1; m_Q(0, 1) = 0.0; m_Q(0, 2) = _t2; m_Q(0, 3) = 0.0;
-  m_Q(1, 0) = 0.0; m_Q(1, 1) = _t1; m_Q(1, 2) = 0.0; m_Q(1, 3) = _t2;
-  m_Q(2, 0) = _t2; m_Q(2, 1) = 0.0; m_Q(2, 2) = _t3; m_Q(2, 3) = 0.0;
-  m_Q(3, 0) = 0.0; m_Q(3, 1) = _t2; m_Q(3, 2) = 0.0; m_Q(3, 3) = _t3;
-}
-
-// -----------------------------------------------------------------------------
-
-/** 
-    @brief Function to set position measurement covariance matrix parameters depending on the expected position variance
-*/
-void Drone::setRvals(double pos_std) {
-  m_R.setZero();
-  m_R(0, 0) = pos_std*pos_std;
-  m_R(1, 1) = pos_std*pos_std;
+  //m_TrueState.setVerbose(true);
 }
 
 // -----------------------------------------------------------------------------
@@ -130,7 +75,7 @@ void Drone::setDest(double X_dest, double Y_dest) {
   assertm(X_dest >= 0, "X destination should be positive (to simplify drawing)");
   assertm(Y_dest >= 0, "Y destination should be positive (to simplify drawing)");
   m_dest << X_dest, Y_dest;
-  Eigen::Vector2d pos_est(m_model_state(0, 0), m_model_state(1, 0));
+  Eigen::Vector2d pos_est(m_ModelState.getState()(0, 0), m_ModelState.getState()(1, 0));
   auto vec_to_dest = m_dest - pos_est;
   m_max_flight_time = m_current_time + vec_to_dest.norm()/m_cruise_speed*100;
   std::cout << "Drone::setDest() set max flight time to: " << m_max_flight_time << " sec" << std::endl;
@@ -144,8 +89,8 @@ void Drone::setDest(double X_dest, double Y_dest) {
 */
 
 void Drone::UpdateAcceleration() {
-  Eigen::Vector2d pos_est(m_model_state(0, 0), m_model_state(1, 0));
-  Eigen::Vector2d speed_est(m_model_state(2, 0), m_model_state(3, 0));
+  Eigen::Vector2d pos_est(m_ModelState.getState()(0, 0), m_ModelState.getState()(1, 0));
+  Eigen::Vector2d speed_est(m_ModelState.getState()(2, 0), m_ModelState.getState()(3, 0));
   auto vec_to_dest = m_dest - pos_est;
 
   if (vec_to_dest.norm() > m_approach_zone) {
@@ -189,17 +134,17 @@ void Drone::PredictNextState() {
   Eigen::Vector2d acc_imu(m_true_a(0) + m_acc_gaus(m_generator), m_true_a(1) + m_acc_gaus(m_generator));
   DEBUG_MSG("True a: \n" << m_true_a << "\nSim a: \n" << acc_imu);
   
-  Eigen::Vector2d current_true_pos(m_true_next_state(0), m_true_next_state(1));
-  m_true_next_state = m_A * m_true_next_state + m_B * m_true_a;
-  Eigen::Vector2d next_true_pos(m_true_next_state(0), m_true_next_state(1));
+  m_TrueState.PredictNextState(m_true_a);
+  Eigen::Vector2d current_true_pos(m_TrueState.getState()(0), m_TrueState.getState()(1));
+  Eigen::Vector2d next_true_pos(m_TrueState.getState(true)(0), m_TrueState.getState(true)(1));
   m_total_distance += (current_true_pos - next_true_pos).norm();
-    
-  m_model_next_state = m_A * m_model_state + m_B * acc_imu;
-  m_model_next_state_cov = m_A * m_model_state_cov * m_A.transpose() + m_Q;
+  
+  m_ModelState.PredictNextState(acc_imu);
 
-  DEBUG_MSG("\tNext True next state pos (" << m_true_next_state(0) << ", " << m_true_next_state(1) << ") v (" << m_true_next_state(2) << ", " << m_true_next_state(3) << ") abs " << Eigen::Vector2d(m_true_next_state(2),m_true_next_state(3)).norm());
-  DEBUG_MSG("\tModel state pos (" << m_model_state(0) << ", " << m_model_state(1) << ") v (" << m_model_state(2) << ", " << m_model_state(3) << ") abs " << Eigen::Vector2d(m_model_state(2),m_model_state(3)).norm());
-  DEBUG_MSG("\tModel next state pos (" << m_model_next_state(0) << ", " << m_model_next_state(1) << ") v (" << m_model_next_state(2) << ", " << m_model_next_state(3) << ") abs " << Eigen::Vector2d(m_model_next_state(2),m_model_next_state(3)).norm());
+  DEBUG_MSG("\tTrue state " << m_TrueState.getStateString());
+  DEBUG_MSG("\tModel state " << m_ModelState.getStateString());
+  DEBUG_MSG("\tTrue next state " << m_TrueState.getStateString(true));
+  DEBUG_MSG("\tModel next state " << m_ModelState.getStateString(true));
   DEBUG_MSG("--------------------------------------------------------");
 }
 
@@ -209,15 +154,15 @@ void Drone::PredictNextState() {
     @brief Function that estimates the current state
 */
 void Drone::EstimateThisState() {
-  Eigen::MatrixXd true_pos(2, 1);
-  true_pos(0, 0) = m_true_next_state(0, 0) + m_pos_gaus(m_generator);
-  true_pos(1, 0) = m_true_next_state(1, 0) + m_pos_gaus(m_generator);
-  auto kalman_gain = m_model_next_state_cov * m_H.transpose()*(m_H * m_model_next_state_cov * m_H.transpose() + m_R).inverse();
-  DEBUG_MSG(m_model_next_state << " <-- predicted next state");
-  DEBUG_MSG(true_pos - m_H * m_model_next_state << " <-- distance delta");
-  DEBUG_MSG(kalman_gain << " <-- kalman gain");
-  m_model_state = m_model_next_state + kalman_gain * (true_pos - m_H * m_model_next_state);
-  m_model_state_cov = m_model_next_state_cov - kalman_gain * m_H * m_model_next_state_cov;  
+  
+  Eigen::Matrix<double, 2, 1> true_pos;
+  true_pos.setZero();
+  
+  m_TrueState.EstimateThisState(true_pos); // for truth the true_pos has no effect as Kalman gain=0 due to cov=0
+
+  true_pos(0, 0) = m_TrueState.getState()(0, 0) + m_pos_gaus(m_generator);
+  true_pos(1, 0) = m_TrueState.getState()(1, 0) + m_pos_gaus(m_generator);
+  m_ModelState.EstimateThisState(true_pos);  
 }
 
 // -----------------------------------------------------------------------------
@@ -232,7 +177,7 @@ void Drone::flyToDest(double destTolerance) {
   }
 
   while (true) {
-    Eigen::Vector2d pos_est(m_model_state(0, 0), m_model_state(1, 0));
+    Eigen::Vector2d pos_est(m_ModelState.getState()(0, 0), m_ModelState.getState()(1, 0));
     auto distance = (pos_est - m_dest).norm();
     
     if (distance < destTolerance) {
@@ -263,8 +208,8 @@ void Drone::UpdateMap() {
   //double offset_x = m_map.size().width/2.0, offset_y = m_map.size().height/2.0;
   double offset_x = 0, offset_y = 0;
   double m_per_pxl = 2.0;
-  auto true_x = m_true_next_state(0)/m_per_pxl + offset_x, true_y = m_true_next_state(1)/m_per_pxl + offset_y;
-  auto est_x = m_model_state(0)/m_per_pxl + offset_x, est_y = m_model_state(1)/m_per_pxl + offset_y;
+  auto true_x = m_TrueState.getState()(0)/m_per_pxl + offset_x, true_y = m_TrueState.getState()(1)/m_per_pxl + offset_y;
+  auto est_x = m_ModelState.getState()(0)/m_per_pxl + offset_x, est_y = m_ModelState.getState()(1)/m_per_pxl + offset_y;
 
   cv::drawMarker(m_map, cv::Point(true_x, true_y), cv::Scalar(0, 255, 0), cv::MARKER_CROSS, 1, 1);
   cv::drawMarker(m_map, cv::Point(est_x, est_y), cv::Scalar(0, 0, 255), cv::MARKER_STAR, 1, 1);

@@ -144,6 +144,9 @@ void Drone::PredictNextState() {
   
   m_ModelState.PredictNextState(acc_imu);
   m_AccOnly.PredictNextState(acc_imu);
+
+  // For GPS only, setting acc_imu readings to zero means that effectively next state is predicted solely
+  // on current knowledge of speed
   acc_imu.setZero();
   m_GpsOnly.PredictNextState(acc_imu);
 
@@ -170,7 +173,13 @@ void Drone::EstimateThisState() {
   true_pos(0, 0) = m_TrueState.getState()(0, 0) + m_pos_gaus(m_generator);
   true_pos(1, 0) = m_TrueState.getState()(1, 0) + m_pos_gaus(m_generator);
   m_ModelState.EstimateThisState(true_pos);
+
+  // for IMU only, this effectively null's the position measurement component, yielding a state estimate
+  // solely on IMU reading
   m_AccOnly.EstimateThisState(Eigen::Matrix<double, 2, 1>(m_AccOnly.getState(true)(0), m_AccOnly.getState(true)(1)));
+
+  // for GPS only, the speed components of the state vector need to be populated manually based on
+  // position updates
   Eigen::Matrix<double, 2, 1> old_pos(m_GpsOnly.getState()(0), m_GpsOnly.getState()(1));
   m_GpsOnly.EstimateThisState(true_pos);
   Eigen::Matrix<double, 2, 1> new_pos(m_GpsOnly.getState()(0), m_GpsOnly.getState()(1));

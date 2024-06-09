@@ -11,6 +11,7 @@ class KalmanState {
   void PredictNextState(Eigen::Vector2d acc_imu);
   void EstimateThisState(Eigen::Matrix<double, 2, 1> true_pos);
   const Eigen::MatrixXd& getState(bool next=false) { return next ? m_model_next_state : m_model_state; }
+  void setSpeed(Eigen::Matrix<double, 2, 1> v) { m_model_state(2) = v(0); m_model_state(3) = v(1); };
   void setVerbose(bool verbose) { m_verbose = verbose; }
   std::string getStateString(bool next=false);
   

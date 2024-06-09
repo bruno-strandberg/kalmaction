@@ -22,6 +22,8 @@ Drone::Drone() :
   m_dest(0.0, 0.0),
   m_ModelState(m_dt, m_expected_acc_std, m_expected_pos_std),
   m_TrueState(m_dt, 0.0, 0.0),
+  m_AccOnly(m_dt, m_expected_acc_std, 0.0),
+  m_GpsOnly(m_dt, m_expected_pos_std/m_dt*m_dt, m_expected_pos_std),
   m_generator(21453) {
 
   m_true_a.setZero();
@@ -34,6 +36,7 @@ Drone::Drone() :
   m_map = cv::Mat(1000, 1000, CV_8UC3, cv::Scalar(255, 255, 255));
 
   //m_TrueState.setVerbose(true);
+  //m_AccOnly.setVerbose(true);
 }
 
 // -----------------------------------------------------------------------------
@@ -140,9 +143,13 @@ void Drone::PredictNextState() {
   m_total_distance += (current_true_pos - next_true_pos).norm();
   
   m_ModelState.PredictNextState(acc_imu);
+  m_AccOnly.PredictNextState(acc_imu);
+  acc_imu.setZero();
+  m_GpsOnly.PredictNextState(acc_imu);
 
   DEBUG_MSG("\tTrue state " << m_TrueState.getStateString());
   DEBUG_MSG("\tModel state " << m_ModelState.getStateString());
+  DEBUG_MSG("\tAcc only model state " << m_AccOnly.getStateString());
   DEBUG_MSG("\tTrue next state " << m_TrueState.getStateString(true));
   DEBUG_MSG("\tModel next state " << m_ModelState.getStateString(true));
   DEBUG_MSG("--------------------------------------------------------");
@@ -162,7 +169,13 @@ void Drone::EstimateThisState() {
 
   true_pos(0, 0) = m_TrueState.getState()(0, 0) + m_pos_gaus(m_generator);
   true_pos(1, 0) = m_TrueState.getState()(1, 0) + m_pos_gaus(m_generator);
-  m_ModelState.EstimateThisState(true_pos);  
+  m_ModelState.EstimateThisState(true_pos);
+  m_AccOnly.EstimateThisState(Eigen::Matrix<double, 2, 1>(m_AccOnly.getState(true)(0), m_AccOnly.getState(true)(1)));
+  Eigen::Matrix<double, 2, 1> old_pos(m_GpsOnly.getState()(0), m_GpsOnly.getState()(1));
+  m_GpsOnly.EstimateThisState(true_pos);
+  Eigen::Matrix<double, 2, 1> new_pos(m_GpsOnly.getState()(0), m_GpsOnly.getState()(1));
+  Eigen::Matrix<double, 2, 1> v = (new_pos - old_pos)/m_dt;
+  m_GpsOnly.setSpeed(v);
 }
 
 // -----------------------------------------------------------------------------
@@ -210,8 +223,12 @@ void Drone::UpdateMap() {
   double m_per_pxl = 2.0;
   auto true_x = m_TrueState.getState()(0)/m_per_pxl + offset_x, true_y = m_TrueState.getState()(1)/m_per_pxl + offset_y;
   auto est_x = m_ModelState.getState()(0)/m_per_pxl + offset_x, est_y = m_ModelState.getState()(1)/m_per_pxl + offset_y;
-
+  auto est_x_acc = m_AccOnly.getState()(0)/m_per_pxl + offset_x, est_y_acc = m_AccOnly.getState()(1)/m_per_pxl + offset_y;
+  auto est_x_gps = m_GpsOnly.getState()(0)/m_per_pxl + offset_x, est_y_gps = m_GpsOnly.getState()(1)/m_per_pxl + offset_y;
+ 
   cv::drawMarker(m_map, cv::Point(true_x, true_y), cv::Scalar(0, 255, 0), cv::MARKER_CROSS, 1, 1);
   cv::drawMarker(m_map, cv::Point(est_x, est_y), cv::Scalar(0, 0, 255), cv::MARKER_STAR, 1, 1);
+  cv::drawMarker(m_map, cv::Point(est_x_acc, est_y_acc), cv::Scalar(255, 0, 0), cv::MARKER_DIAMOND, 1, 1);
+  cv::drawMarker(m_map, cv::Point(est_x_gps, est_y_gps), cv::Scalar(0, 0, 0), cv::MARKER_SQUARE, 1, 1);
   
 }

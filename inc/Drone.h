@@ -36,6 +36,8 @@ public:
 
   KalmanState m_ModelState;
   KalmanState m_TrueState;
+  KalmanState m_AccOnly;
+  KalmanState m_GpsOnly;
   
   std::normal_distribution<double> m_acc_gaus;  // gaussian to simulate random noise in IMU
   std::normal_distribution<double> m_pos_gaus;  // gaussian to simulate random noise in GPS
